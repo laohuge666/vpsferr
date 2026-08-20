@@ -330,7 +330,7 @@ def handle_captcha(page, cdk, scene="page", max_attempts=3):
 
     for attempt in range(max_attempts):
         log(f"  [{scene}] 等待中 ({attempt + 1}/{max_attempts})...")
-        if wait_hcaptcha_solved(page, timeout=30):
+        if wait_hcaptcha_solved(page, timeout=45):
             return True
         # 兜底：点击复选框
         click_hcaptcha_checkbox(page)
