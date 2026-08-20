@@ -1,0 +1,81 @@
+name: 🎮 Vpsfree.es 每日签到续期 (NopeCHA)
+
+on:
+  repository_dispatch:
+    types: [vpsfree]
+  workflow_dispatch:
+  #schedule:
+  #  - cron: '0 17 * * *'
+
+concurrency:
+  group: vpsfree-checkin
+  cancel-in-progress: true
+
+jobs:
+  checkin:
+    name: 🎮 Vpsfree.es 每日签到续期
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: 1. 检出代码
+        uses: actions/checkout@v4
+
+      - name: 2. 安装 Python 环境
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 3. 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -U DrissionPage requests
+          sudo apt-get update -qq
+          sudo apt-get install -y xvfb xdotool
+          echo "✅ 依赖安装完成"
+
+      - name: 4. 还原 Chrome Profile（含 Discord 登录态 + NopeCHA）
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.chrome-profile-discord
+          key: chrome-profile-discord-v1-${{ github.run_id }}
+          restore-keys: |
+            chrome-profile-discord-v1-
+          fail-on-cache-miss: false
+
+      - name: 5. 清理 Chrome Profile 锁文件
+        run: |
+          rm -f ~/.chrome-profile-discord/SingletonLock
+          rm -f ~/.chrome-profile-discord/SingletonSocket
+          rm -f ~/.chrome-profile-discord/SingletonCookie
+          echo "✅ 锁文件清理完成"
+
+      - name: 6. 按需拉起代理（Sing-Box）
+        if: env.PROXY_STR != ''
+        env:
+          PROXY_STR: ${{ secrets.VPSFREE_PROXY_STR }}
+        run: |
+          echo "✅ 检测到代理配置，正在拉起 Sing-Box..."
+          curl -LO https://github.com/SagerNet/sing-box/releases/download/v1.9.3/sing-box-1.9.3-linux-amd64.tar.gz
+          tar -xzf sing-box-1.9.3-linux-amd64.tar.gz
+          sudo cp sing-box-1.9.3-linux-amd64/sing-box /usr/local/bin/
+          python convert_proxy.py
+          nohup sing-box run -c config.json > singbox.log 2>&1 &
+          sleep 3
+          curl -sS --socks5 127.0.0.1:8080 \
+            -o /dev/null -w "代理状态: %{http_code}\n" \
+            https://api.ipify.org || echo "⚠️ 代理可能未就绪，继续执行"
+
+      - name: 7. 执行签到脚本
+        env:
+          PROXY_STR:             ${{ secrets.VPSFREE_PROXY_STR }}
+          ACCOUNTS:              ${{ secrets.VPSFREE_ACCOUNTS }}
+          TG_BOT_TOKEN:          ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID:            ${{ secrets.TG_CHAT_ID }}
+          BROWSER_USER_DATA_DIR: /home/runner/.chrome-profile-discord
+        run: |
+          if [ -n "$PROXY_STR" ]; then
+            export BROWSER_PROXY="http://127.0.0.1:8080"
+          fi
+          xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" python vpsfree.py
